@@ -1,0 +1,216 @@
+[gd_scene format=3 uid="uid://dt656kn7q5v2t"]
+
+[ext_resource type="Script" uid="uid://bru5fwjoshq2c" path="res://scripts/world.gd" id="1_world"]
+[ext_resource type="Script" uid="uid://buft38ebyrjkx" path="res://scripts/terrain_grid.gd" id="2_terrain"]
+[ext_resource type="Script" uid="uid://7qderc0tsxxu" path="res://scripts/road_builder.gd" id="3_road"]
+[ext_resource type="Script" uid="uid://d1aop00bu4fgq" path="res://scripts/terrain_pad.gd" id="4_pad"]
+[ext_resource type="Script" uid="uid://osvm8e6ci036" path="res://scripts/imported_landmark.gd" id="5_landmark"]
+[ext_resource type="Script" uid="uid://dur32rpl0dd6n" path="res://scripts/player.gd" id="6_player"]
+[ext_resource type="Script" uid="uid://b3qmx82ev0iiu" path="res://scripts/camera_rig.gd" id="7_camera"]
+[ext_resource type="PackedScene" path="res://landmark_house.tscn" id="8_house"]
+[ext_resource type="PackedScene" uid="uid://clisf2hfdyh3m" path="res://assets/library/city-world/brooklyn-street-row-buildings-low-poly.glb" id="9_row"]
+[ext_resource type="PackedScene" uid="uid://byni6v380uu83" path="res://assets/library/city-world/modular-city-road-pack-game-ready-4in-2-007-6.glb" id="10_road_tile"]
+[ext_resource type="PackedScene" uid="uid://cxfryujmtsto3" path="res://assets/library/city-world/modular-city-road-pack-game-ready-plane-001-12.glb" id="11_pavement"]
+[ext_resource type="PackedScene" uid="uid://n88lr1wje7g1" path="res://assets/library/city-world/modular-city-road-pack-game-ready-cylinder-14.glb" id="12_lamp"]
+
+[sub_resource type="BoxShape3D" id="Shape_row"]
+size = Vector3(20.4, 15.4, 66.1)
+
+[sub_resource type="CapsuleShape3D" id="PlayerCapsule"]
+radius = 0.45
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="PlayerBodyMat"]
+albedo_color = Color(0.18, 0.28, 0.46, 1)
+roughness = 0.85
+
+[sub_resource type="CapsuleMesh" id="PlayerBodyMesh"]
+radius = 0.4
+height = 1.6
+
+[sub_resource type="StandardMaterial3D" id="PlayerHeadMat"]
+albedo_color = Color(0.83, 0.66, 0.53, 1)
+roughness = 0.75
+
+[sub_resource type="SphereMesh" id="PlayerHeadMesh"]
+radius = 0.22
+height = 0.44
+
+[sub_resource type="StandardMaterial3D" id="PlayerNoseMat"]
+albedo_color = Color(0.92, 0.36, 0.14, 1)
+roughness = 0.5
+
+[sub_resource type="BoxMesh" id="PlayerNoseMesh"]
+size = Vector3(0.1, 0.1, 0.4)
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
+sky_top_color = Color(0.22, 0.42, 0.72, 1)
+sky_horizon_color = Color(0.66, 0.73, 0.8, 1)
+ground_bottom_color = Color(0.24, 0.26, 0.24, 1)
+ground_horizon_color = Color(0.6, 0.63, 0.58, 1)
+
+[sub_resource type="Sky" id="SkyRes"]
+sky_material = SubResource("SkyMat")
+
+[sub_resource type="Environment" id="EnvRes"]
+background_mode = 2
+sky = SubResource("SkyRes")
+ambient_light_source = 2
+ambient_light_energy = 0.5
+tonemap_mode = 2
+
+[node name="World" type="Node3D" unique_id=822400884]
+script = ExtResource("1_world")
+
+[node name="Terrain" type="Node3D" parent="." unique_id=1214045238]
+script = ExtResource("2_terrain")
+player_path = NodePath("../Player")
+
+[node name="Features" type="Node3D" parent="Terrain" unique_id=1093306164]
+
+[node name="PadRowWest" type="Node3D" parent="Terrain/Features" unique_id=1993398689]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16, 0, -30)
+script = ExtResource("4_pad")
+rect_size = Vector2(26, 80)
+
+[node name="PadRowEast" type="Node3D" parent="Terrain/Features" unique_id=712061465]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16, 0, -2)
+script = ExtResource("4_pad")
+rect_size = Vector2(26, 80)
+
+[node name="PadHouseA" type="Node3D" parent="Terrain/Features" unique_id=1662327708]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 0, -52)
+script = ExtResource("4_pad")
+blend = 6.0
+
+[node name="PadHouseB" type="Node3D" parent="Terrain/Features" unique_id=658353424]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -14, 0, -72)
+script = ExtResource("4_pad")
+blend = 6.0
+
+[node name="PadHouseC" type="Node3D" parent="Terrain/Features" unique_id=690955766]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, -95)
+script = ExtResource("4_pad")
+blend = 6.0
+
+[node name="Road" type="Node3D" parent="." unique_id=2094604720]
+script = ExtResource("3_road")
+player_path = NodePath("../Player")
+road_tile_scene = ExtResource("10_road_tile")
+pavement_tile_scene = ExtResource("11_pavement")
+
+[node name="StreetProps" type="Node3D" parent="." unique_id=249942749]
+
+[node name="Lamp01" parent="StreetProps" unique_id=369378880 instance=ExtResource("12_lamp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.4, 0, 18)
+
+[node name="Lamp02" parent="StreetProps" unique_id=1059306770 instance=ExtResource("12_lamp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.4, 0, -2)
+
+[node name="Lamp03" parent="StreetProps" unique_id=1165182056 instance=ExtResource("12_lamp")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -3.4, 0, -22)
+
+[node name="Lamp04" parent="StreetProps" unique_id=1215833397 instance=ExtResource("12_lamp")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 3.4, 0, -42)
+
+[node name="Lamp05" parent="StreetProps" unique_id=1895935382 instance=ExtResource("12_lamp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.4, 0, -62)
+
+[node name="Lamp06" parent="StreetProps" unique_id=2121945847 instance=ExtResource("12_lamp")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.4, 0, -82)
+
+[node name="Lamp07" parent="StreetProps" unique_id=377669522 instance=ExtResource("12_lamp")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -3.4, 0, -102)
+
+[node name="Lamp08" parent="StreetProps" unique_id=351380859 instance=ExtResource("12_lamp")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 3.4, 0, -122)
+
+[node name="Landmarks" type="Node3D" parent="." unique_id=1994520532]
+
+[node name="RowHouseWest" type="StaticBody3D" parent="Landmarks" unique_id=27081702]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -16, 0, -30)
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("5_landmark")
+model_node = NodePath("Model")
+
+[node name="Model" parent="Landmarks/RowHouseWest" unique_id=908463243 instance=ExtResource("9_row")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Landmarks/RowHouseWest" unique_id=191858747]
+shape = SubResource("Shape_row")
+
+[node name="RowHouseEast" type="StaticBody3D" parent="Landmarks" unique_id=1783704980]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 16, 0, -2)
+collision_layer = 2
+collision_mask = 0
+script = ExtResource("5_landmark")
+model_node = NodePath("Model")
+
+[node name="Model" parent="Landmarks/RowHouseEast" unique_id=49552269 instance=ExtResource("9_row")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Landmarks/RowHouseEast" unique_id=214076915]
+shape = SubResource("Shape_row")
+
+[node name="HouseA" parent="Landmarks" unique_id=391376735 instance=ExtResource("8_house")]
+transform = Transform3D(2.18557e-08, 0, 1, 0, 1, 0, -1, 0, 2.18557e-08, 14, 0, -52)
+script = ExtResource("5_landmark")
+align_visual = false
+
+[node name="HouseB" parent="Landmarks" unique_id=2033357952 instance=ExtResource("8_house")]
+transform = Transform3D(-1.19249e-08, 0, -1, 0, 1, 0, 1, 0, -1.19249e-08, -14, 0, -72)
+script = ExtResource("5_landmark")
+
+[node name="HouseC" parent="Landmarks" unique_id=1784840754 instance=ExtResource("8_house")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12, 0, -95)
+script = ExtResource("5_landmark")
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=880219553]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 12)
+collision_layer = 4
+collision_mask = 3
+script = ExtResource("6_player")
+
+[node name="BodyCollision" type="CollisionShape3D" parent="Player" unique_id=91843668]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("PlayerCapsule")
+
+[node name="SkinPivot" type="Node3D" parent="Player" unique_id=196861164]
+
+[node name="Body" type="MeshInstance3D" parent="Player/SkinPivot" unique_id=327966322]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+material_override = SubResource("PlayerBodyMat")
+mesh = SubResource("PlayerBodyMesh")
+
+[node name="Head" type="MeshInstance3D" parent="Player/SkinPivot" unique_id=1545795795]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.62, 0)
+material_override = SubResource("PlayerHeadMat")
+mesh = SubResource("PlayerHeadMesh")
+
+[node name="Facing" type="MeshInstance3D" parent="Player/SkinPivot" unique_id=1190465192]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.15, -0.42)
+material_override = SubResource("PlayerNoseMat")
+mesh = SubResource("PlayerNoseMesh")
+
+[node name="CameraYaw" type="Node3D" parent="." unique_id=1963516882]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 12)
+script = ExtResource("7_camera")
+target_path = NodePath("../Player")
+
+[node name="CameraPitch" type="Node3D" parent="CameraYaw" unique_id=509084104]
+transform = Transform3D(1, 0, 0, 0, 0.96592593, 0.2588187, 0, -0.2588187, 0.96592593, 0, 0, 0)
+
+[node name="SpringArm3D" type="SpringArm3D" parent="CameraYaw/CameraPitch" unique_id=209996859]
+collision_mask = 2
+spring_length = 5.5
+
+[node name="Camera3D" type="Camera3D" parent="CameraYaw/CameraPitch/SpringArm3D" unique_id=1186015496]
+current = true
+fov = 70.0
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1231311715]
+transform = Transform3D(0.86602527, -0.43301305, 0.2499999, 0, 0.49999955, 0.8660257, -0.50000024, -0.7500001, 0.43301225, 0, 0, 0)
+light_energy = 1.1
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=248394724]
+environment = SubResource("EnvRes")

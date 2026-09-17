@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moderni svet - prototyp</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0d141c; }
+  #gl { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; left: 16px; top: 16px; color: #eaf0f6; pointer-events: none;
+    font: 13px/1.6 system-ui, "Segoe UI", sans-serif; max-width: 330px;
+    background: rgba(10, 16, 24, 0.55); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px; padding: 12px 15px;
+  }
+  #hud h2 { margin: 0 0 8px; font-size: 14px; color: #ffd479; font-weight: 600; }
+  #hud .k { display: inline-block; min-width: 74px; color: #9fd0ff; }
+  #stats { position: fixed; right: 14px; top: 14px; color: #9fb3c8;
+           font: 12px/1.5 ui-monospace, Consolas, monospace; text-align: right; }
+  #start {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 12, 18, 0.74); color: #eaf0f6; cursor: pointer; text-align: center;
+    font: 15px/1.65 system-ui, "Segoe UI", sans-serif;
+  }
+  #start .box {
+    background: rgba(14, 20, 30, 0.92); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 14px; padding: 26px 34px; max-width: 540px;
+  }
+  #start h1 { margin: 0 0 10px; font-size: 20px; }
+  #start p { margin: 7px 0; color: #b9c6d4; }
+  #start .go { margin-top: 16px; color: #ffd479; font-weight: 600; }
+  #fail { display: none; position: fixed; inset: 0; align-items: center; justify-content: center;
+          background: #0d141c; color: #ffb4b4; font: 15px/1.7 system-ui, "Segoe UI", sans-serif;
+          padding: 40px; text-align: center; }
+  #jserr { display: none; position: fixed; left: 12px; bottom: 12px; right: 12px; z-index: 9;
+           background: rgba(60, 12, 12, 0.94); color: #ffd7d7; border: 1px solid #ff6b6b;
+           border-radius: 10px; padding: 12px 16px; text-align: left;
+           font: 13px/1.6 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <h2>Moderni svet</h2>
+  <div><span class="k">W A S D</span> chuze</div>
+  <div><span class="k">Mys</span> otaceni kamery</div>
+  <div><span class="k">Shift</span> sprint</div>
+  <div><span class="k">Space</span> skok</div>
+  <div><span class="k">Esc</span> uvolneni kurzoru</div>
+</div>
+
+<div id="stats"></div>
+
+<div id="start">
+  <div class="box">
+    <h1>Moderni svet - prototyp</h1>
+    <p>Proceduralne generovana krajina, silnice a mesto, kterym se prochazis.</p>
+    <p>Ovladani: WASD, mys pro otaceni, Shift sprint, Space skok.</p>
+    <p class="go">Klikni sem pro spusteni</p>
+  </div>
+</div>
+
+<div id="fail">
+  <div>
+    <h1>WebGL se nepodarilo spustit</h1>
+    <p>Tento prohlizec nebo graficky ovladac nepodporuje WebGL.</p>
+    <p>Zkus prosim jiny prohlizec (Chrome, Edge, Firefox) nebo aktualizuj ovladac grafiky.</p>
+  </div>
+</div>
+
+<div id="jserr"></div>
+
+<!-- Separate script so a syntax error in the game below is still reported
+     on screen instead of leaving a blank page. -->
+<script>
+  window.onerror = function (msg, src, line, col) {
+    var el = document.getElementById("jserr");
+    if (el) {
+      el.style.display = "block";
+      el.textContent = "Chyba v JavaScriptu: " + msg + "  (radek " + line + ", sloupec " + col + ")";
+    }
+    return false;
+  };
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("gl");
+  var startEl = document.getElementById("start");
+  var statsEl = document.getElementById("stats");
+
+  var gl = canvas.getContext("webgl", { antialias: true, alpha: false })
+        || canvas.getContext("experimental-webgl", { antialias: true, alpha: false });
+
+  if (!gl) {
+    document.getElementById("fail").style.display = "flex";
+    startEl.style.display = "none";
+    return;
+  }
+
+  // ---------------------------------------------------------------- math ----
+
+  function clamp01(t) { return t < 0 ? 0 : (t > 1 ? 1 : t); }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+  function mat4Perspective(fovyRad, aspect, near, far) {
+    var f = 1 / Math.tan(fovyRad * 0.5);
+    var nf = 1 / (near - far);
+    return new Float32Array([
+      f / aspect, 0, 0, 0,
+      0, f, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0
+    ]);
+  }
+
+  function mat4LookAt(ex, ey, ez, tx, ty, tz) {
+    var zx = ex - tx, zy = ey - ty, zz = ez - tz;
+    var zl = Math.sqrt(zx * zx + zy * zy + zz * zz) || 1;
+    zx /= zl; zy /= zl; zz /= zl;
+
+    // right = normalize(cross(worldUp, z)) with worldUp = (0,1,0)
+    var xx = 1 * zz - 0 * zy;
+    var xy = 0 * zx - 0 * zz;
+    var xz = 0 * zy - 1 * zx;
+    var xl = Math.sqrt(xx * xx + xy * xy + xz * xz) || 1;
+    xx /= xl; xy /= xl; xz /= xl;
+
+    // up = cross(z, x)
+    var yx = zy * xz - zz * xy;
+    var yy = zz * xx - zx * xz;
+    var yz = zx * xy - zy * xx;
+
+    return new Float32Array([
+      xx, yx, zx, 0,
+      xy, yy, zy, 0,
+      xz, yz, zz, 0,
+      -(xx * ex + xy * ey + xz * ez),
+      -(yx * ex + yy * ey + yz * ez),
+      -(zx * ex + zy * ey + zz * ez),
+      1
+    ]);
+  }
+
+  function mat4Multiply(a, b) {
+    var o = new Float32Array(16);
+    for (var c = 0; c < 4; c++) {
+      for (var r = 0; r < 4; r++) {
+        o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] +
+                       a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+      }
+    }
+    return o;
+  }
+
+  function mat4Model(x, y, z, yawRad) {
+    var c = Math.cos(yawRad), s = Math.sin(yawRad);
+    return new Float32Array([
+      c, 0, -s, 0,
+      0, 1, 0, 0,
+      s, 0, c, 0,
+      x, y, z, 1
+    ]);
+  }
+
+  function mat3FromYaw(yawRad) {
+    var c = Math.cos(yawRad), s = Math.sin(yawRad);
+    return new Float32Array([c, 0, -s, 0, 1, 0, s, 0, c]);
+  }
+
+  var IDENTITY4 = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
+  var IDENTITY3 = new Float32Array([1,0,0, 0,1,0, 0,0,1]);
+
+  // --------------------------------------------------------------- noise ----
+
+  function hash2(x, y) {
+    var h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+    return h - Math.floor(h);
+  }
+
+  function fade(t) { return t * t * (3 - 2 * t); }
+
+  function vnoise(x, y) {
+    var xi = Math.floor(x), yi = Math.floor(y);
+    var u = fade(x - xi), v = fade(y - yi);
+    var a = hash2(xi, yi), b = hash2(xi + 1, yi);
+    var c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
+    return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  }
+
+  function fbm(x, y) {
+    var s = 0, amp = 1, f = 1, norm = 0;
+    for (var i = 0; i < 4; i++) {
+      s += amp * vnoise(x * f, y * f);
+      norm += amp;
+      amp *= 0.5;
+      f *= 2.03;
+    }
+    return s / norm;
+  }
+
+  // --------------------------------------------------------------- world ----
+
+  var HEIGHT_SCALE = 4.5;
+  var ROAD_X = 0;
+  var ROAD_FLAT = 6;
+  var ROAD_BLEND = 13;
+
+  var T_HALF = 200;      // world half size in metres
+  var T_CELLS = 200;     // 2 m cells -> 201 x 201 vertices (fits Uint16 indices)
+
+  var pads = [];
+
+  function terrainHeight(x, z) {
+    var h = (fbm(x * 0.0055 + 40, z * 0.0055 + 40) - 0.5) * 2 * HEIGHT_SCALE;
+    h *= 0.65 + 0.35 * fbm(x * 0.0016 + 7, z * 0.0016 + 7);
+
+    // Road corridor flattens to y = 0 so the road strip lies on level ground.
+    var w = 1 - clamp01((Math.abs(x - ROAD_X) - ROAD_FLAT) / ROAD_BLEND);
+    h *= (1 - w);
+
+    // Building pads flatten to y = 0 under every structure footprint.
+    for (var i = 0; i < pads.length; i++) {
+      var p = pads[i];
+      var dx = Math.max(Math.abs(x - p.x) - p.hx, 0);
+      var dz = Math.max(Math.abs(z - p.z) - p.hz, 0);
+      var d = Math.sqrt(dx * dx + dz * dz);
+      h *= clamp01(d / p.blend);
+    }
+    return h;
+  }
+
+  // Buildings are laid out first: their pads must be registered before the
+  // terrain mesh samples the ground, otherwise structures float or sink.
+  var buildings = [];
+  (function layoutBuildings() {
+    var bz = -10;
+    for (var i = 0; i < 12; i++) {
+      var side = (i % 2 === 0) ? 1 : -1;
+      var r1 = hash2(i * 3 + 1, 11);
+      var r2 = hash2(i * 5 + 2, 23);
+      var r3 = hash2(i * 7 + 3, 31);
+      var w = 9 + r1 * 6;
+      var d = 12 + r2 * 9;
+      var h = 7 + r3 * 9;
+      buildings.push({ x: side * (13.5 + r1 * 4), z: bz - d * 0.5, w: w, d: d, h: h, tone: r2 });
+      bz -= d + 6 + r2 * 8;
+    }
+    for (var j = 0; j < buildings.length; j++) {
+      var b = buildings[j];
+      pads.push({ x: b.x, z: b.z, hx: b.w * 0.5 + 3, hz: b.d * 0.5 + 3, blend: 5 });
+    }
+  })();
+
+  var lamps = [];
+  (function layoutLamps() {
+    var z = 30;
+    var flip = 1;
+    while (z > -180) {
+      lamps.push({ x: flip * 4.3, z: z });
+      flip = -flip;
+      z -= 24;
+    }
+  })();
+
+  // -------------------------------------------------------------- meshes ----
+
+  function Mesh(pos, nrm, col, idx) {
+    this.pos = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.pos);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
+
+    this.nrm = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.nrm);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(nrm), gl.STATIC_DRAW);
+
+    this.col = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.col);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(col), gl.STATIC_DRAW);
+
+    this.idx = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idx);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+
+    this.count = idx.length;
+  }
+
+  // A scratch accumulator so mesh builders read as plain geometry code.
+  function Builder() {
+    this.pos = [];
+    this.nrm = [];
+    this.col = [];
+    this.idx = [];
+  }
+
+  Builder.prototype.vertex = function (px, py, pz, nx, ny, nz, c) {
+    this.pos.push(px, py, pz);
+    this.nrm.push(nx, ny, nz);
+    this.col.push(c[0], c[1], c[2]);
+    return this.pos.length / 3 - 1;
+  };
+
+  Builder.prototype.tri = function (a, b, c) {
+    this.idx.push(a, b, c);
+  };
+
+  // Quad from centre + two tangents. u x v must equal the outward normal n,
+  // which makes the vertex order counter-clockwise seen from outside.
+  Builder.prototype.quad = function (cx, cy, cz, ux, uy, uz, vx, vy, vz, nx, ny, nz, c) {
+    var p0 = [cx - ux - vx, cy - uy - vy, cz - uz - vz];
+    var p1 = [cx + ux - vx, cy + uy - vy, cz + uz - vz];
+    var p2 = [cx + ux + vx, cy + uy + vy, cz + uz + vz];
+    var p3 = [cx - ux + vx, cy - uy + vy, cz - uz + vz];
+    var a = this.vertex(p0[0], p0[1], p0[2], nx, ny, nz, c);
+    var b = this.vertex(p1[0], p1[1], p1[2], nx, ny, nz, c);
+    var d = this.vertex(p2[0], p2[1], p2[2], nx, ny, nz, c);
+    var e = this.vertex(p3[0], p3[1], p3[2], nx, ny, nz, c);
+    this.tri(a, b, d);
+    this.tri(a, d, e);
+  };
+
+  Builder.prototype.box = function (x0, y0, z0, x1, y1, z1, c) {
+    var cx = (x0 + x1) * 0.5, cy = (y0 + y1) * 0.5, cz = (z0 + z1) * 0.5;
+    var hx = (x1 - x0) * 0.5, hy = (y1 - y0) * 0.5, hz = (z1 - z0) * 0.5;
+
+    this.quad(cx + hx, cy, cz, 0, hy, 0, 0, 0, hz, 1, 0, 0, c);   // +X
+    this.quad(cx - hx, cy, cz, 0, 0, hz, 0, hy, 0, -1, 0, 0, c);  // -X
+    this.quad(cx, cy + hy, cz, 0, 0, hz, hx, 0, 0, 0, 1, 0, c);   // +Y
+    this.quad(cx, cy - hy, cz, hx, 0, 0, 0, 0, hz, 0, -1, 0, c);  // -Y
+    this.quad(cx, cy, cz + hz, hx, 0, 0, 0, hy, 0, 0, 0, 1, c);   // +Z
+    this.quad(cx, cy, cz - hz, 0, hy, 0, hx, 0, 0, 0, 0, -1, c);  // -Z
+  };
+
+  Builder.prototype.build = function () {
+    return new Mesh(this.pos, this.nrm, this.col, this.idx);
+  };
+
+  function lerp3(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+
+  var GRASS_LOW = [0.20, 0.31, 0.15];
+  var GRASS_HIGH = [0.52, 0.58, 0.30];
+
+  function groundColor(x, z, h) {
+    var t = clamp01(h / (HEIGHT_SCALE * 1.3) + 0.5);
+    var base = lerp3(GRASS_LOW, GRASS_HIGH, t);
+    var n = 0.9 + fbm(x * 0.045, z * 0.045) * 0.22;
+    return [base[0] * n, base[1] * n, base[2] * n];
+  }
+
+  function buildTerrain() {
+    var b = new Builder();
+    var step = (T_HALF * 2) / T_CELLS;
+    var n = T_CELLS + 1;
+    var ix, iz, x, z, h, i;
+
+    for (iz = 0; iz < n; iz++) {
+      z = -T_HALF + iz * step;
+      for (ix = 0; ix < n; ix++) {
+        x = -T_HALF + ix * step;
+        h = terrainHeight(x, z);
+
+        var e = 0.75;
+        var hL = terrainHeight(x - e, z), hR = terrainHeight(x + e, z);
+        var hD = terrainHeight(x, z - e), hU = terrainHeight(x, z + e);
+        var nx = -(hR - hL) / (2 * e), ny = 1, nz = -(hU - hD) / (2 * e);
+        var nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+
+        b.vertex(x, h, z, nx / nl, ny / nl, nz / nl, groundColor(x, z, h));
+      }
+    }
+
+    for (iz = 0; iz < T_CELLS; iz++) {
+      for (ix = 0; ix < T_CELLS; ix++) {
+        var a = iz * n + ix;
+        var c = a + 1;
+        var d = a + n;
+        var f = d + 1;
+        b.tri(a, d, f);
+        b.tri(a, f, c);
+      }
+    }
+    return b.build();
+  }
+
+  function buildRoad() {
+    var b = new Builder();
+    var step = 4;
+    var asph = [0.17, 0.17, 0.18];
+    var kerb = [0.55, 0.55, 0.52];
+    var line = [0.84, 0.80, 0.50];
+    var y = 0.05;
+    var z;
+
+    for (z = -T_HALF; z < T_HALF; z += step) {
+      var z1 = Math.min(z + step, T_HALF);
+      var cz = (z + z1) * 0.5, hz = (z1 - z) * 0.5;
+
+      // u x v must equal the +Y normal or the strip is back-facing and gets
+      // culled: u runs along Z, v runs along X.
+      b.quad(0, y, cz, 0, 0, hz, 3.5, 0, 0, 0, 1, 0, asph);
+      b.quad(4.5, y + 0.05, cz, 0, 0, hz, 1.0, 0, 0, 0, 1, 0, kerb);
+      b.quad(-4.5, y + 0.05, cz, 0, 0, hz, 1.0, 0, 0, 0, 1, 0, kerb);
+
+      if (Math.floor((z + T_HALF) / step) % 2 === 0) {
+        b.quad(0, y + 0.01, cz, 0, 0, hz * 0.6, 0.13, 0, 0, 0, 1, 0, line);
+      }
+    }
+    return b.build();
+  }
+
+  function buildBuildings() {
+    var b = new Builder();
+    for (var i = 0; i < buildings.length; i++) {
+      var o = buildings[i];
+      var x0 = o.x - o.w * 0.5, x1 = o.x + o.w * 0.5;
+      var z0 = o.z - o.d * 0.5, z1 = o.z + o.d * 0.5;
+
+      var wall = lerp3([0.62, 0.55, 0.46], [0.44, 0.38, 0.36], o.tone);
+      var roof = [0.30, 0.22, 0.20];
+
+      b.box(x0, 0, z0, x1, o.h, z1, wall);
+      b.box(x0 - 0.35, o.h, z0 - 0.35, x1 + 0.35, o.h + 0.55, z1 + 0.35, roof);
+
+      // A darker recess reads as a doorway on the road-facing side.
+      var faceX = (o.x > 0) ? x0 : x1;
+      var dir = (o.x > 0) ? -1 : 1;
+      b.box(faceX, 0, o.z - 0.9, faceX + dir * 0.25, 2.3, o.z + 0.9, [0.24, 0.18, 0.15]);
+    }
+    return b.build();
+  }
+
+  function buildLamps() {
+    var b = new Builder();
+    var dark = [0.26, 0.27, 0.29];
+    var bulb = [0.90, 0.88, 0.72];
+    for (var i = 0; i < lamps.length; i++) {
+      var l = lamps[i];
+      b.box(l.x - 0.09, 0, l.z - 0.09, l.x + 0.09, 5.4, l.z + 0.09, dark);
+      var toward = (l.x > 0) ? -0.75 : 0.75;
+      b.box(l.x - 0.22 + toward, 5.4, l.z - 0.5, l.x + 0.22 + toward, 5.65, l.z + 0.5, bulb);
+    }
+    return b.build();
+  }
+
+  // Player mesh is authored at the origin with the feet on y = 0 and the
+  // front pointing down -Z, matching the movement convention below.
+  function buildPlayer() {
+    var b = new Builder();
+    var legs = [0.15, 0.19, 0.33];
+    var shirt = [0.70, 0.27, 0.21];
+    var skin = [0.83, 0.66, 0.53];
+    var nose = [0.90, 0.40, 0.16];
+
+    b.box(-0.26, 0.0, -0.17, 0.26, 0.78, 0.17, legs);
+    b.box(-0.32, 0.78, -0.20, 0.32, 1.48, 0.20, shirt);
+    b.box(-0.21, 1.48, -0.21, 0.21, 1.88, 0.21, skin);
+    b.box(-0.05, 1.62, -0.33, 0.05, 1.72, -0.21, nose);
+    return b.build();
+  }
+
+  // ------------------------------------------------------------ shaders ----
+
+  function compile(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      throw new Error("Shader: " + gl.getShaderInfoLog(s));
+    }
+    return s;
+  }
+
+  function program(vsSrc, fsSrc) {
+    var p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      throw new Error("Program: " + gl.getProgramInfoLog(p));
+    }
+    return p;
+  }
+
+  var sceneProg = program(
+    "attribute vec3 aPos;\n" +
+    "attribute vec3 aNormal;\n" +
+    "attribute vec3 aColor;\n" +
+    "uniform mat4 uViewProj;\n" +
+    "uniform mat4 uModel;\n" +
+    "uniform mat3 uNormalMat;\n" +
+    "varying vec3 vNormal;\n" +
+    "varying vec3 vColor;\n" +
+    "void main() {\n" +
+    "  vNormal = uNormalMat * aNormal;\n" +
+    "  vColor = aColor;\n" +
+    "  gl_Position = uViewProj * (uModel * vec4(aPos, 1.0));\n" +
+    "}\n",
+
+    "precision mediump float;\n" +
+    "uniform vec3 uLightDir;\n" +
+    "uniform float uAmbient;\n" +
+    "varying vec3 vNormal;\n" +
+    "varying vec3 vColor;\n" +
+    "void main() {\n" +
+    "  vec3 n = normalize(vNormal);\n" +
+    "  float d = max(dot(n, uLightDir), 0.0);\n" +
+    "  vec3 c = vColor * (uAmbient + d * 0.85);\n" +
+    "  gl_FragColor = vec4(c, 1.0);\n" +
+    "}\n"
+  );
+
+  var skyProg = program(
+    "attribute vec2 aPos;\n" +
+    "varying vec2 vNdc;\n" +
+    "void main() {\n" +
+    "  vNdc = aPos;\n" +
+    "  gl_Position = vec4(aPos, 0.0, 1.0);\n" +
+    "}\n",
+
+    "precision mediump float;\n" +
+    "uniform vec3 uCamRight;\n" +
+    "uniform vec3 uCamUp;\n" +
+    "uniform vec3 uCamFwd;\n" +
+    "uniform vec3 uSkyTop;\n" +
+    "uniform vec3 uSkyHorizon;\n" +
+    "uniform vec3 uGroundColor;\n" +
+    "uniform float uTanHalf;\n" +
+    "uniform float uAspect;\n" +
+    "varying vec2 vNdc;\n" +
+    "void main() {\n" +
+    "  vec3 ray = normalize(uCamFwd + uCamRight * (vNdc.x * uTanHalf * uAspect)\n" +
+    "                               + uCamUp * (vNdc.y * uTanHalf));\n" +
+    "  vec3 c;\n" +
+    "  if (ray.y > 0.0) {\n" +
+    "    c = mix(uSkyHorizon, uSkyTop, pow(ray.y, 0.55));\n" +
+    "  } else {\n" +
+    "    c = mix(uSkyHorizon, uGroundColor, pow(-ray.y, 0.55));\n" +
+    "  }\n" +
+    "  gl_FragColor = vec4(c, 1.0);\n" +
+    "}\n"
+  );
+
+  var sceneLoc = {
+    aPos: gl.getAttribLocation(sceneProg, "aPos"),
+    aNormal: gl.getAttribLocation(sceneProg, "aNormal"),
+    aColor: gl.getAttribLocation(sceneProg, "aColor"),
+    uViewProj: gl.getUniformLocation(sceneProg, "uViewProj"),
+    uModel: gl.getUniformLocation(sceneProg, "uModel"),
+    uNormalMat: gl.getUniformLocation(sceneProg, "uNormalMat"),
+    uLightDir: gl.getUniformLocation(sceneProg, "uLightDir"),
+    uAmbient: gl.getUniformLocation(sceneProg, "uAmbient")
+  };
+
+  var skyLoc = {
+    aPos: gl.getAttribLocation(skyProg, "aPos"),
+    uCamRight: gl.getUniformLocation(skyProg, "uCamRight"),
+    uCamUp: gl.getUniformLocation(skyProg, "uCamUp"),
+    uCamFwd: gl.getUniformLocation(skyProg, "uCamFwd"),
+    uSkyTop: gl.getUniformLocation(skyProg, "uSkyTop"),
+    uSkyHorizon: gl.getUniformLocation(skyProg, "uSkyHorizon"),
+    uGroundColor: gl.getUniformLocation(skyProg, "uGroundColor"),
+    uTanHalf: gl.getUniformLocation(skyProg, "uTanHalf"),
+    uAspect: gl.getUniformLocation(skyProg, "uAspect")
+  };
+
+  var skyQuad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, skyQuad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1, 1, -1, 1, 1,
+    -1, -1, 1, 1, -1, 1
+  ]), gl.STATIC_DRAW);
+
+  // --------------------------------------------------------------- meshes ----
+
+  var meshTerrain = buildTerrain();
+  var meshRoad = buildRoad();
+  var meshBuildings = buildBuildings();
+  var meshLamps = buildLamps();
+  var meshPlayer = buildPlayer();
+
+  // ------------------------------------------------------------- controls ----
+
+  var keys = Object.create(null);
+  var yaw = 0;
+  var PITCH = -15 * Math.PI / 180;
+  var CAM_DIST = 6.0;
+  var PIVOT_H = 1.6;
+  var FOV = 70 * Math.PI / 180;
+
+  var player = { x: 0, y: 1.2, z: 12, vy: 0, heading: 0, grounded: false };
+  var vx = 0, vz = 0;
+
+  window.addEventListener("keydown", function (e) {
+    keys[e.code] = true;
+    if (e.code === "Space") e.preventDefault();
+  });
+  window.addEventListener("keyup", function (e) {
+    keys[e.code] = false;
+  });
+
+  document.addEventListener("mousemove", function (e) {
+    if (document.pointerLockElement === canvas) {
+      yaw -= e.movementX * 0.0022;
+    }
+  });
+
+  canvas.addEventListener("click", function () {
+    if (canvas.requestPointerLock) canvas.requestPointerLock();
+  });
+  startEl.addEventListener("click", function () {
+    if (canvas.requestPointerLock) canvas.requestPointerLock();
+  });
+
+  document.addEventListener("pointerlockchange", function () {
+    var locked = document.pointerLockElement === canvas;
+    startEl.style.display = locked ? "none" : "flex";
+  });
+
+  // ---------------------------------------------------------------- input ----
+
+  function held() {
+    for (var i = 0; i < arguments.length; i++) {
+      if (keys[arguments[i]]) return true;
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------- frame ----
+
+  var last = 0;
+  var fpsAcc = 0, fpsFrames = 0, fpsShown = 0;
+
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w = Math.floor(canvas.clientWidth * dpr);
+    var h = Math.floor(canvas.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+  }
+
+  function update(dt) {
+    var fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // flat camera forward
+    var rx = Math.cos(yaw), rz = -Math.sin(yaw);    // flat camera right
+
+    var fwdAxis = (held("KeyW", "ArrowUp") ? 1 : 0) - (held("KeyS", "ArrowDown") ? 1 : 0);
+    var strafe = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
+
+    var mx = fx * fwdAxis + rx * strafe;
+    var mz = fz * fwdAxis + rz * strafe;
+    var ml = Math.sqrt(mx * mx + mz * mz);
+    if (ml > 1e-4) { mx /= ml; mz /= ml; }
+
+    var speed = keys["ShiftLeft"] || keys["ShiftRight"] ? 8.5 : 5.0;
+    var accel = 14;
+    vx += (mx * speed - vx) * clamp01(accel * dt);
+    vz += (mz * speed - vz) * clamp01(accel * dt);
+
+    player.x += vx * dt;
+    player.z += vz * dt;
+
+    // Push out of building footprints on the horizontal plane.
+    var r = 0.45;
+    for (var i = 0; i < buildings.length; i++) {
+      var o = buildings[i];
+      var minX = o.x - o.w * 0.5 - r, maxX = o.x + o.w * 0.5 + r;
+      var minZ = o.z - o.d * 0.5 - r, maxZ = o.z + o.d * 0.5 + r;
+      if (player.x > minX && player.x < maxX && player.z > minZ && player.z < maxZ) {
+        var dl = player.x - minX, dr = maxX - player.x;
+        var db = player.z - minZ, df = maxZ - player.z;
+        var m = Math.min(dl, dr, db, df);
+        if (m === dl) player.x = minX;
+        else if (m === dr) player.x = maxX;
+        else if (m === db) player.z = minZ;
+        else player.z = maxZ;
+      }
+    }
+
+    var lim = T_HALF - 6;
+    player.x = clamp(player.x, -lim, lim);
+    player.z = clamp(player.z, -lim, lim);
+
+    // Vertical: gravity plus an exact ground query, so the player can never
+    // fall through the terrain.
+    var ground = terrainHeight(player.x, player.z);
+    player.vy -= 22 * dt;
+    if (keys["Space"] && player.grounded) player.vy = 7.0;
+    player.y += player.vy * dt;
+    if (player.y <= ground) {
+      player.y = ground;
+      player.vy = 0;
+      player.grounded = true;
+    } else {
+      player.grounded = false;
+    }
+
+    if (ml > 1e-4) {
+      var target = Math.atan2(-mx, -mz);
+      var diff = target - player.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      player.heading += diff * clamp01(12 * dt);
+    }
+  }
+
+  function drawMesh(mesh, model, normalMat) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.pos);
+    gl.enableVertexAttribArray(sceneLoc.aPos);
+    gl.vertexAttribPointer(sceneLoc.aPos, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.nrm);
+    gl.enableVertexAttribArray(sceneLoc.aNormal);
+    gl.vertexAttribPointer(sceneLoc.aNormal, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, mesh.col);
+    gl.enableVertexAttribArray(sceneLoc.aColor);
+    gl.vertexAttribPointer(sceneLoc.aColor, 3, gl.FLOAT, false, 0, 0);
+
+    gl.uniformMatrix4fv(sceneLoc.uModel, false, model);
+    gl.uniformMatrix3fv(sceneLoc.uNormalMat, false, normalMat);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.idx);
+    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  function frame(now) {
+    var dt = last ? Math.min((now - last) / 1000, 0.05) : 0.016;
+    last = now;
+
+    resize();
+    update(dt);
+
+    var aspect = canvas.width / canvas.height;
+
+    // Camera sits behind the player on a fixed 15 degree downward pitch and
+    // never rolls, so the horizon stays level.
+    var cp = Math.cos(PITCH), sp = Math.sin(PITCH);
+    var fwd = [-Math.sin(yaw) * cp, sp, -Math.cos(yaw) * cp];
+    var eyeX = player.x - fwd[0] * CAM_DIST;
+    var eyeY = player.y + PIVOT_H - fwd[1] * CAM_DIST;
+    var eyeZ = player.z - fwd[2] * CAM_DIST;
+
+    var view = mat4LookAt(eyeX, eyeY, eyeZ,
+                          player.x, player.y + PIVOT_H, player.z);
+    var proj = mat4Perspective(FOV, aspect, 0.1, 900);
+    var viewProj = mat4Multiply(proj, view);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.55, 0.65, 0.78, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    // Sky first, with depth writes off so it can never hide the world.
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.useProgram(skyProg);
+    gl.bindBuffer(gl.ARRAY_BUFFER, skyQuad);
+    gl.enableVertexAttribArray(skyLoc.aPos);
+    gl.vertexAttribPointer(skyLoc.aPos, 2, gl.FLOAT, false, 0, 0);
+
+    // Camera basis for the sky ray: right = cross(forward, worldUp).
+    var rlx = -fwd[2], rlz = fwd[0];
+    var rll = Math.sqrt(rlx * rlx + rlz * rlz) || 1;
+    var rn = [rlx / rll, 0, rlz / rll];
+    var up = [
+      rn[1] * fwd[2] - rn[2] * fwd[1],
+      rn[2] * fwd[0] - rn[0] * fwd[2],
+      rn[0] * fwd[1] - rn[1] * fwd[0]
+    ];
+
+    gl.uniform3f(skyLoc.uCamRight, rn[0], rn[1], rn[2]);
+    gl.uniform3f(skyLoc.uCamUp, up[0], up[1], up[2]);
+    gl.uniform3f(skyLoc.uCamFwd, fwd[0], fwd[1], fwd[2]);
+    gl.uniform3f(skyLoc.uSkyTop, 0.20, 0.42, 0.76);
+    gl.uniform3f(skyLoc.uSkyHorizon, 0.68, 0.75, 0.82);
+    gl.uniform3f(skyLoc.uGroundColor, 0.20, 0.24, 0.20);
+    gl.uniform1f(skyLoc.uTanHalf, Math.tan(FOV * 0.5));
+    gl.uniform1f(skyLoc.uAspect, aspect);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    // World.
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+    gl.frontFace(gl.CCW);
+
+    gl.useProgram(sceneProg);
+    gl.uniformMatrix4fv(sceneLoc.uViewProj, false, viewProj);
+
+    var L = [0.42, 0.83, 0.36];
+    var Ll = Math.sqrt(L[0] * L[0] + L[1] * L[1] + L[2] * L[2]);
+    gl.uniform3f(sceneLoc.uLightDir, L[0] / Ll, L[1] / Ll, L[2] / Ll);
+    gl.uniform1f(sceneLoc.uAmbient, 0.42);
+
+    drawMesh(meshTerrain, IDENTITY4, IDENTITY3);
+    drawMesh(meshRoad, IDENTITY4, IDENTITY3);
+    drawMesh(meshBuildings, IDENTITY4, IDENTITY3);
+    drawMesh(meshLamps, IDENTITY4, IDENTITY3);
+    drawMesh(meshPlayer, mat4Model(player.x, player.y, player.z, player.heading),
+             mat3FromYaw(player.heading));
+
+    fpsAcc += dt;
+    fpsFrames++;
+    if (fpsAcc >= 0.5) {
+      fpsShown = Math.round(fpsFrames / fpsAcc);
+      fpsAcc = 0;
+      fpsFrames = 0;
+    }
+    statsEl.textContent = fpsShown + " fps\n" +
+      "x " + player.x.toFixed(1) + "  z " + player.z.toFixed(1) + "\n" +
+      (player.grounded ? "na zemi" : "ve vzduchu");
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

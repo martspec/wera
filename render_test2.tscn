@@ -1,0 +1,40 @@
+[gd_scene format=3 uid="uid://dgq7dhgvexbhg"]
+
+[sub_resource type="StandardMaterial3D" id="Mat_red"]
+shading_mode = 0
+albedo_color = Color(1, 0.15, 0.15, 1)
+
+[sub_resource type="BoxMesh" id="Box_test"]
+size = Vector3(2, 2, 2)
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
+sky_top_color = Color(0.22, 0.42, 0.72, 1)
+sky_horizon_color = Color(0.66, 0.73, 0.8, 1)
+ground_bottom_color = Color(0.24, 0.26, 0.24, 1)
+ground_horizon_color = Color(0.6, 0.63, 0.58, 1)
+
+[sub_resource type="Sky" id="SkyRes"]
+sky_material = SubResource("SkyMat")
+
+[sub_resource type="Environment" id="EnvRes"]
+background_mode = 2
+sky = SubResource("SkyRes")
+ambient_light_source = 2
+ambient_light_energy = 0.5
+tonemap_mode = 2
+
+[node name="RenderTest2" type="Node3D" unique_id=642332776]
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1770795216]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 6)
+current = true
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1852426820]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 5, 5)
+
+[node name="Box" type="MeshInstance3D" parent="." unique_id=398358103]
+material_override = SubResource("Mat_red")
+mesh = SubResource("Box_test")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1911558707]
+environment = SubResource("EnvRes")

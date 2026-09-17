@@ -1,0 +1,74 @@
+[gd_scene load_steps=11 format=3]
+
+[sub_resource type="BoxShape3D" id="HouseShape"]
+size = Vector3(7, 5.1, 9)
+
+[sub_resource type="BoxMesh" id="HouseShellMesh"]
+size = Vector3(7, 3, 9)
+
+[sub_resource type="BoxMesh" id="HouseRoofMesh"]
+size = Vector3(8, 0.4, 10)
+
+[sub_resource type="BoxMesh" id="HouseChimneyMesh"]
+size = Vector3(1, 1.8, 1)
+
+[sub_resource type="BoxMesh" id="HouseDoorMesh"]
+size = Vector3(1.4, 2.2, 0.3)
+
+[sub_resource type="BoxMesh" id="HouseWindowMesh"]
+size = Vector3(1.6, 1.2, 0.3)
+
+[sub_resource type="StandardMaterial3D" id="HouseWallMat"]
+albedo_color = Color(0.86, 0.83, 0.76, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="HouseRoofMat"]
+albedo_color = Color(0.29, 0.28, 0.3, 1)
+roughness = 0.75
+
+[sub_resource type="StandardMaterial3D" id="HouseDoorMat"]
+albedo_color = Color(0.35, 0.22, 0.14, 1)
+roughness = 0.6
+
+[sub_resource type="StandardMaterial3D" id="HouseWindowMat"]
+albedo_color = Color(0.16, 0.24, 0.31, 1)
+metallic = 0.3
+roughness = 0.15
+
+[node name="LandmarkHouse" type="StaticBody3D"]
+collision_layer = 2
+collision_mask = 0
+
+[node name="Shell" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.5, 0)
+mesh = SubResource("HouseShellMesh")
+material_override = SubResource("HouseWallMat")
+
+[node name="Roof" type="MeshInstance3D" parent="."]
+position = Vector3(0, 3.2, 0)
+mesh = SubResource("HouseRoofMesh")
+material_override = SubResource("HouseRoofMat")
+
+[node name="Chimney" type="MeshInstance3D" parent="."]
+position = Vector3(-2, 4.3, -2)
+mesh = SubResource("HouseChimneyMesh")
+material_override = SubResource("HouseRoofMat")
+
+[node name="Door" type="MeshInstance3D" parent="."]
+position = Vector3(0, 1.1, 4.6)
+mesh = SubResource("HouseDoorMesh")
+material_override = SubResource("HouseDoorMat")
+
+[node name="WindowLeft" type="MeshInstance3D" parent="."]
+position = Vector3(-2.2, 1.9, 4.55)
+mesh = SubResource("HouseWindowMesh")
+material_override = SubResource("HouseWindowMat")
+
+[node name="WindowRight" type="MeshInstance3D" parent="."]
+position = Vector3(2.2, 1.9, 4.55)
+mesh = SubResource("HouseWindowMesh")
+material_override = SubResource("HouseWindowMat")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 2.55, 0)
+shape = SubResource("HouseShape")
